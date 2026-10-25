@@ -5,6 +5,7 @@ export function configuration(env: WorkerEnv): { origins: Set<string>; productio
   const unavailable = () => new HttpError(503, 'SERVICE_UNAVAILABLE', 'Serviço temporariamente indisponível. Tente novamente.');
   if (!['development', 'production'].includes(env.APP_ENV)) throw unavailable();
   const production = env.APP_ENV === 'production';
+  if (env.EMAIL_DELIVERY_MODE && !['native', 'sendgrid'].includes(env.EMAIL_DELIVERY_MODE)) throw unavailable();
   const origins = new Set((env.ALLOWED_ORIGINS ?? '').split(',').map(value => value.trim()).filter(Boolean));
   if (!origins.size) throw unavailable();
   try {

@@ -1,6 +1,6 @@
 # Astro Password Reset
 
-Microsserviço TypeScript para solicitar e confirmar recuperação de senha no Firebase Authentication, executado no Cloudflare Workers. Tarefa: [SCRUM-625](https://luizacursino.atlassian.net/browse/SCRUM-625). Sem banco de dados, armazenamento de códigos, Firebase Admin SDK ou servidor Node em produção.
+Microsserviço TypeScript para solicitar e confirmar recuperação de senha no Firebase Authentication, executado no Cloudflare Workers. Tarefa: [SCRUM-625](https://luizacursino.atlassian.net/browse/SCRUM-625). O Firebase gera e valida os códigos; o SendGrid entrega o e-mail HTML próprio do Astro. Sem banco de dados, armazenamento de códigos, Firebase Admin SDK ou servidor Node em produção.
 
 ## Execução local
 
@@ -9,7 +9,7 @@ Requer Node 24 LTS e npm. Os scripts chamam os executáveis por Node para funcio
 ```sh
 npm ci
 cp .dev.vars.example .dev.vars
-# Preencha FIREBASE_API_KEY em .dev.vars com a chave Web do seu projeto.
+# Preencha as variáveis Firebase e SendGrid descritas abaixo em .dev.vars.
 npm run typegen
 npm run typecheck
 npm test
@@ -22,9 +22,11 @@ O Wrangler inicia em `http://localhost:8787`. `.dev.vars` é ignorado pelo Git. 
 
 ## Arquitetura
 
-`src/index.ts` expõe apenas o handler do Worker; `app.ts` aplica configuração, HTTPS, CORS, roteamento e limite por IP. `http.ts` limita e interpreta JSON e padroniza respostas. `validation.ts` valida campos. `firebase.ts` faz a única chamada externa por operação, com timeout de 8 segundos e sem seguir redirects. `types.ts` descreve o ambiente; `worker-configuration.d.ts` contém os tipos do Wrangler, gerados com `npm run typegen`.
+`src/index.ts` expõe o handler e agenda telemetria; `app.ts` aplica configuração, HTTPS, CORS, roteamento e limite por IP. `http.ts` interpreta JSON e padroniza respostas. `validation.ts` valida campos. `firebase.ts` confirma a senha e suporta envio nativo opcional. `google-auth.ts` usa jose/Web Crypto para obter autorização Google. `recovery-email.ts` gera o link no Firebase e envia via SendGrid REST, com orçamento total de oito segundos e redirects bloqueados. `src/templates/` contém HTML/texto e a logo inline. `types.ts` descreve o ambiente; os tipos de runtime são gerados pelo Wrangler.
 
-Fluxo: Web → Worker → Firebase REST → e-mail nativo → `/replacePassword?mode=resetPassword&oobCode=...` → Worker confirma nova senha → Web abre `/passwordChanged`. A conta é determinada exclusivamente pelo código. O serviço não cria sessões e não altera usuários por e-mail informado no reset.
+Fluxo padrão: Web → Worker → OAuth Google → Firebase REST gera link sem enviar e-mail → SendGrid entrega HTML/texto Astro → `/replacePassword?mode=resetPassword&oobCode=...` → Worker confirma nova senha no Firebase → Web abre `/passwordChanged`. A conta é determinada exclusivamente pelo código. O serviço não cria sessões e não altera usuários por e-mail informado no reset.
+
+O fluxo foi adaptado de [Ludos Password Reset](https://github.com/Ludos-Souk/ludos-password-reset), a pedido do usuário: e-mail próprio enviado pelo backend. Aqui a implementação usa APIs HTTP e jose compatível com Workers, sem Express, Admin SDK, Firestore ou funcionalidades de atendimento do Ludos.
 
 ## Contratos HTTP
 
@@ -43,7 +45,9 @@ HTTP 200, inclusive para conta inexistente ou desabilitada:
 {"success":true,"message":"Se o e-mail informado estiver cadastrado, você receberá instruções para redefinir sua senha."}
 ```
 
-O serviço envia `requestType: PASSWORD_RESET`, e-mail sem espaços nas pontas e `X-Firebase-Locale: pt-BR` para `accounts:sendOobCode`. Não acrescenta `continueUrl`: isso não configura o handler do e-mail. Retornos de sucesso sem e-mail também são aceitos para preservar a proteção de privacidade do Firebase. Falhas operacionais não são tratadas como envio bem-sucedido.
+No modo `sendgrid`, o serviço envia `requestType: PASSWORD_RESET`, e-mail sem espaços nas pontas, `targetProjectId` e `returnOobLink: true` ao Firebase, com autorização OAuth de conta de serviço. O Firebase não envia e-mail nessa operação. O Worker extrai apenas o `oobCode` da resposta confiável e monta o destino fixo do Astro Web, sem redirecionamento controlado pelo cliente. O SendGrid precisa aceitar a entrega com HTTP 202 antes da resposta de sucesso; isso significa aceitação para processamento, não confirmação de chegada à caixa de entrada. Falhas operacionais retornam 503; conta inexistente/desabilitada mantém resposta genérica.
+
+O modo `native` permanece disponível explicitamente para usar e-mail do Firebase. Nesse modo, `continueUrl` não configura o handler; respostas sem e-mail são aceitas para preservar a proteção de privacidade. O Wrangler e o exemplo local estão configurados para `sendgrid`; falta de credenciais não causa fallback silencioso para outro remetente ou template.
 
 ```http
 POST /auth/reset-password
@@ -87,6 +91,12 @@ Erros sempre usam este envelope, sem corpo bruto do Firebase:
 | FRONTEND_BASE_URL | https://astro-inter.github.io/astro-web | Contrato e validação de configuração; não altera templates remotamente |
 | ALLOWED_ORIGINS | https://astro-inter.github.io | Origens completas separadas por vírgula, sem caminhos |
 | APP_ENV | production | HTTPS obrigatório; development permite origens locais HTTP |
+| EMAIL_DELIVERY_MODE | sendgrid | Template próprio via SendGrid; native usa o e-mail do Firebase |
+| FIREBASE_PROJECT_ID | astro-ba278 | Mesmo projeto Firebase do Web, usado na geração autenticada |
+| FIREBASE_CLIENT_EMAIL | secret Cloudflare | E-mail da conta de serviço Google usada para gerar os links |
+| FIREBASE_PRIVATE_KEY | secret Cloudflare | Chave PEM PKCS8 da conta de serviço; aceita quebras escapadas como \n |
+| SENDGRID_API_KEY | secret Cloudflare | Chave com permissão Mail Send da conta SendGrid do Astro |
+| SENDGRID_SENDER_EMAIL | secret Cloudflare | Remetente verificado no SendGrid; nome apresentado é Astro |
 | OTEL_EXPORTER_OTLP_ENDPOINT | https://otlp-gateway-prod-sa-east-1.grafana.net/otlp | Endpoint base público do Grafana; o exportador acrescenta /v1/logs |
 | OTEL_EXPORTER_OTLP_HEADERS | secret Cloudflare | Authorization no formato OTEL, com Basic e espaço codificado como %20 |
 | PASSWORD_RATE_LIMITER | binding em wrangler.jsonc | Cinco chamadas por minuto por IP, compartilhadas entre os dois endpoints |
@@ -95,12 +105,31 @@ Erros sempre usam este envelope, sem corpo bruto do Firebase:
 
 1. Use o mesmo projeto Firebase do Astro Web e habilite login por e-mail/senha. Confira a política real de senhas e mantenha a proteção contra enumeração de e-mails habilitada.
 2. Em Authentication → Settings → Authorized domains, confira/adicione `astro-inter.github.io`. Domínios não contêm `/astro-web`. Para testes locais, autorize localhost quando exigido pela configuração do projeto.
-3. Em Authentication → Templates → Password reset → editar → Customize action URL, configure **https://astro-inter.github.io/astro-web/replacePassword**. O Firebase acrescenta `mode`, `oobCode` e possíveis parâmetros adicionais. `FRONTEND_BASE_URL` no Worker não executa essa operação no Console.
-4. **A documentação do Firebase informa que a URL personalizada é usada por todos os templates do projeto.** Antes de salvar em produção, inventarie verificação de e-mail, reversão de endereço e outros fluxos. O Web desta entrega aceita somente `mode=resetPassword` e rejeita outros modos sem consumir seus códigos. Não habilite a troca global até assegurar atendimento aos outros modos usados pelo Astro, ou adotar um handler comum aprovado pela equipe. A configuração global não foi alterada por este código.
-5. Configure nome público/remetente como Projeto Astro, assunto de recuperação e mensagem explicando a solicitação, contendo o placeholder `%LINK%` e a orientação de ignorar caso não tenha solicitado. Use o editor nativo; recursos de personalização e envio estão sujeitos aos limites do Firebase. Não há SMTP/Resend/SendGrid nesta versão.
-6. Confira restrições da Web API Key para Identity Toolkit e o contexto de chamada do Worker. Não copie automaticamente restrições HTTP-referrer de navegador para uma chave usada de servidor para servidor. Não use conta de serviço ou token administrativo.
+3. Para `sendgrid`, configure uma conta de serviço no projeto correto com a permissão `firebaseauth.users.sendEmail`, necessária para geração de link, seguindo o menor privilégio. Cadastre client email e chave privada somente como secrets. A assinatura JWT RS256 é feita pela biblioteca jose e trocada por um access token de escopo Identity Toolkit. Não há armazenamento de senhas ou códigos; a credencial administrativa deve ficar exclusivamente no Worker.
+4. No modo `sendgrid`, **não é necessário mudar a Custom Email Action URL global no Console**: o Worker monta o link do Astro Web a partir do código retornado. O HTML é versionado neste repositório. Outros templates Firebase continuam com a configuração atual.
+5. Somente se optar por `native`: configure a Custom Email Action URL como **https://astro-inter.github.io/astro-web/replacePassword**. A documentação Firebase informa que essa alteração afeta todos os templates; antes de ativá-la, assegure atendimento aos outros modos usados pelo Astro. O Web aceita somente resetPassword. `continueUrl` e FRONTEND_BASE_URL não executam essa alteração no Console.
+6. Confira as restrições da Web API Key para Identity Toolkit e o contexto servidor-servidor. Ela continua usada na confirmação via REST; não é substituída pela conta de serviço. Não copie automaticamente restrições HTTP-referrer de navegador para a chamada do Worker.
 
 Referências oficiais: [Firebase REST](https://firebase.google.com/docs/reference/rest/auth), [handler personalizado e impacto em templates](https://firebase.google.com/docs/auth/custom-email-handler), [edição de e-mails](https://support.google.com/firebase/answer/7000714?hl=en), [proteção contra enumeração](https://docs.cloud.google.com/identity-platform/docs/admin/email-enumeration-protection).
+
+## Template próprio e SendGrid
+
+O template em `src/templates/password-reset.ts` segue o [Figma Astro](https://www.figma.com/design/qdCrRXAVuiNhNkBuim95zz/Astro-2%C2%B0-ano?node-id=4791-6753): fundo contínuo #1c1839, textos #f6f6f6/#bcbacc, Montserrat e botão #8f00c4. Usa logo e ilustração oficial do envelope orbital em anexos inline (CID), link alternativo, orientação de segurança e versão em texto. A logo foi reutilizada do Astro Web; ilustração, fontes, licença e referências ficam em `assets/email/`. `npm run assets:email` regenera os assets incorporados usados pelo Worker.
+
+O HTML usa tabelas e estilos inline. As fontes são incorporadas para clientes que aceitam @font-face, com fallback Arial/Helvetica e tratamento MSO; não há busca externa de imagens/fontes. Dados do link são escapados. Não afirma validade fixa de 24 horas: a validade e o uso único são controlados pelo Firebase. A prévia foi conferida no Chrome em 680px e 390px, sem overflow, com logo/ilustração proporcionais e foco visível. Gmail/Outlook e possíveis ajustes automáticos de cores/fontes continuam dependendo de teste com entrega real.
+
+No SendGrid, prepare uma conta para o Astro, verifique remetente/domínio e crie uma API Key com permissão Mail Send. Cadastre SENDGRID_API_KEY e SENDGRID_SENDER_EMAIL como secrets. Tracking de abertura, cliques, Google Analytics e assinatura é desativado por mensagem, evitando reescrita do link de recuperação. Confira também templates/footers automáticos e retenção de logs no provedor. Não foram reutilizadas credenciais do Ludos, criado remetente fictício nem contratado plano pago.
+
+Para visualizar sem enviar:
+
+```sh
+npm run preview:email
+# Abra dist/email-preview.html; a versão texto está em dist/email-preview.txt.
+```
+
+A prévia usa um código fictício e substitui o CID da logo por data URI apenas para exibição local. O e-mail enviado mantém o anexo inline. Conferência no navegador não comprova renderização no Gmail/Outlook: testar uma entrega real somente após configurar as credenciais.
+
+Referências: [geração autenticada returnOobLink](https://docs.cloud.google.com/identity-platform/docs/reference/rest/v1/accounts/sendOobCode), [OAuth conta de serviço](https://developers.google.com/identity/protocols/oauth2/service-account), [SendGrid Mail Send](https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send).
 
 ## Proteção contra abuso e dados sensíveis
 
@@ -145,6 +174,10 @@ npm test
 npm run build
 npx wrangler login
 npx wrangler secret put FIREBASE_API_KEY
+npx wrangler secret put FIREBASE_CLIENT_EMAIL
+npx wrangler secret put FIREBASE_PRIVATE_KEY
+npx wrangler secret put SENDGRID_API_KEY
+npx wrangler secret put SENDGRID_SENDER_EMAIL
 npm run deploy
 ```
 
@@ -158,10 +191,10 @@ O workflow Pages do Web cria `replacePassword/index.html` e `passwordChanged/ind
 
 ## Validação e limites da entrega
 
-- API: 46 testes aprovados, incluindo timeout, privacidade, contrato Firebase, CORS, validação, erros, execução no workerd com rate limit real local e exportação OTLP. Typecheck e bundle aprovados; npm audit sem vulnerabilidades na base das dependências, que não mudou na integração Grafana.
+- API: 57 testes aprovados, incluindo geração Firebase autenticada e envio SendGrid simulados, assinatura JWT verificada, HTML/texto e logo, privacidade, timeout, CORS, execução no workerd, rate limit local e OTLP. Typecheck e bundle aprovados; npm audit sem vulnerabilidades após adicionar jose.
 - Web: 391 testes aprovados, incluindo oito casos do fluxo integrado; build aprovado. Integração local do serviço real do Web com handler do Worker e Firebase simulado aprovada para envio, confirmação e código expirado.
-- Acesso Firebase Console, configuração do template, envio real, alteração de senha real, publicação do Worker e verificação de rotas no Pages ficam pendentes. O deploy está preparado; testes não dependem de produção.
+- Template padrão Firebase foi consultado, mas não alterado. Credenciais Google/SendGrid, remetente verificado, envio real, alteração de senha real, publicação do Worker e verificação de rotas no Pages ficam pendentes. Prévia local do HTML foi conferida. O deploy está preparado; testes não dependem de produção.
 
 ## Revisão Git
 
-`main` exige PR, uma aprovação, descarte de aprovações obsoletas e aprovação do último push por outra pessoa, inclusive administradores. Force push e exclusão estão bloqueados. A implementação usa a tarefa pai SCRUM-625; subtarefas 626 (estrutura), 627 (API/testes), 628 (Web) e 629 (operação/documentação) descrevem as entregas. Não fazer merge sem revisão humana.
+`main` exige PR, uma aprovação, descarte de aprovações obsoletas e aprovação do último push por outra pessoa, inclusive administradores. Force push e exclusão estão bloqueados. A implementação usa a tarefa pai SCRUM-625; subtarefas 626 (estrutura), 627 (API/testes), 628 (Web), 629 (operação), 630 (Grafana) e 631 (e-mail próprio) descrevem as entregas. Não fazer merge sem revisão humana.
