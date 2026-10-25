@@ -3,6 +3,7 @@ import { HttpError } from './http.ts';
 import { recoveryEmail } from './validation.ts';
 import { passwordResetTemplate } from './templates/password-reset.ts';
 import { astroLogoBase64 } from './templates/astro-logo.ts';
+import { recoveryPlanetBase64 } from './templates/design-assets.ts';
 import type { FirebaseFetch, WorkerEnv } from './types.ts';
 
 const unavailable = () => new HttpError(503, 'PROVIDER_UNAVAILABLE', 'Não foi possível concluir a solicitação agora. Tente novamente.');
@@ -51,7 +52,10 @@ export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport
         personalizations: [{ to: [{ email }] }],
         from: { email: sender, name: 'Astro' }, subject: 'Redefinição de senha — Astro',
         content: [{ type: 'text/plain', value: content.text }, { type: 'text/html', value: content.html }],
-        attachments: [{ content: astroLogoBase64, type: 'image/png', filename: 'logo-astro.png', disposition: 'inline', content_id: 'logo-astro' }],
+        attachments: [
+          { content: astroLogoBase64, type: 'image/png', filename: 'logo-astro.png', disposition: 'inline', content_id: 'logo-astro' },
+          { content: recoveryPlanetBase64, type: 'image/png', filename: 'recovery-planet.png', disposition: 'inline', content_id: 'recovery-planet' },
+        ],
         tracking_settings: { click_tracking: { enable: false, enable_text: false }, open_tracking: { enable: false }, subscription_tracking: { enable: false }, ganalytics: { enable: false } },
       }),
     });

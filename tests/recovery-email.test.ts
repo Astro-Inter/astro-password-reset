@@ -54,6 +54,7 @@ test('OAuth assinado, geração Firebase e entrega HTML/texto via SendGrid', asy
   assert.match(mail.content[0].value, /https:\/\/astro-inter.github.io\/astro-web\/replacePassword\?mode=resetPassword&oobCode=fake-code/);
   assert.doesNotMatch(mail.content[1].value, /Ludos|24 horas|apiKey|ignored/);
   assert.equal(mail.attachments[0].content_id, 'logo-astro');
+  assert.equal(mail.attachments[1].content_id, 'recovery-planet');
   assert.ok(Buffer.from(mail.attachments[0].content, 'base64').subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])));
   assert.equal(mail.tracking_settings.click_tracking.enable, false);
   assert.equal(mail.tracking_settings.open_tracking.enable, false);
