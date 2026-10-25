@@ -10,11 +10,13 @@
     "dev": "node ./node_modules/wrangler/bin/wrangler.js dev",
     "typegen": "node ./node_modules/wrangler/bin/wrangler.js types",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
+    "pretest": "npm run build",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "build": "node ./node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir dist",
     "deploy": "node ./node_modules/wrangler/bin/wrangler.js deploy"
   },
   "devDependencies": {
+    "miniflare": "5.20261019.2-beta",
     "typescript": "^7.0.2",
     "wrangler": "4.152.0"
   },

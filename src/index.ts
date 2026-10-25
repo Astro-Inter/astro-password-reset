@@ -1,5 +1,6 @@
+import { handleRequest } from './app.ts';
+import type { WorkerEnv } from './types.ts';
+
 export default {
-  async fetch(): Promise<Response> {
-    return Response.json({ success: false, error: { code: 'NOT_FOUND', message: 'Rota não encontrada.' } }, { status: 404 });
-  },
+  fetch(request: Request, env: WorkerEnv): Promise<Response> { return handleRequest(request, env); },
 };
