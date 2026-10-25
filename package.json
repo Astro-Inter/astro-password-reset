@@ -1,0 +1,24 @@
+{
+  "name": "astro-password-reset",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node ./node_modules/wrangler/bin/wrangler.js dev",
+    "typegen": "node ./node_modules/wrangler/bin/wrangler.js types",
+    "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "build": "node ./node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir dist",
+    "deploy": "node ./node_modules/wrangler/bin/wrangler.js deploy"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "wrangler": "4.152.0"
+  },
+  "overrides": {
+    "undici": "7.30.1"
+  }
+}

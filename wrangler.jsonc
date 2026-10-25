@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "astro-password-reset",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-25",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "vars": {
+    "FRONTEND_BASE_URL": "https://astro-inter.github.io/astro-web",
+    "ALLOWED_ORIGINS": "https://astro-inter.github.io",
+    "APP_ENV": "production"
+  },
+  "ratelimits": [{
+    "name": "PASSWORD_RATE_LIMITER",
+    "namespace_id": "625",
+    "simple": { "limit": 5, "period": 60 }
+  }]
+}
