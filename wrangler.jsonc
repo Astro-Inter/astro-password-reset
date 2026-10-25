@@ -9,7 +9,7 @@
     "FRONTEND_BASE_URL": "https://astro-inter.github.io/astro-web",
     "ALLOWED_ORIGINS": "https://astro-inter.github.io",
     "APP_ENV": "production",
-    "EMAIL_DELIVERY_MODE": "sendgrid",
+    "EMAIL_DELIVERY_MODE": "smtp",
     "FIREBASE_PROJECT_ID": "astro-ba278",
     "OTEL_EXPORTER_OTLP_ENDPOINT": "https://otlp-gateway-prod-sa-east-1.grafana.net/otlp"
   },

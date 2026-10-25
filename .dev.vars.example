@@ -2,14 +2,17 @@ FIREBASE_API_KEY=configure-a-chave-web-do-projeto
 FRONTEND_BASE_URL=http://localhost:5173
 ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 APP_ENV=development
-EMAIL_DELIVERY_MODE=sendgrid
+EMAIL_DELIVERY_MODE=smtp
 FIREBASE_PROJECT_ID=astro-ba278
 FIREBASE_CLIENT_EMAIL=
 # Secret: PEM PKCS8; no arquivo local pode usar \n entre as linhas.
 FIREBASE_PRIVATE_KEY=
-SENDGRID_API_KEY=
-# Precisa ser um remetente verificado na conta SendGrid do Astro.
-SENDGRID_SENDER_EMAIL=
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-sa-east-1.grafana.net/otlp
 # Apenas em .dev.vars local ou secret Cloudflare; nunca versionar o valor real.
 OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20SUBSTITUA_PELA_CREDENCIAL
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=

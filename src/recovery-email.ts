@@ -1,3 +1,4 @@
+import { sendSmtp, type SmtpDeliver } from './smtp.ts';
 import { googleAccessToken } from './google-auth.ts';
 import { HttpError } from './http.ts';
 import { recoveryEmail } from './validation.ts';
@@ -19,16 +20,16 @@ export function buildResetUrl(frontendBase: string, code: string): string {
 }
 
 /** Gera o código no Firebase e entrega HTML próprio, como o fluxo Ludos. */
-export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport: FirebaseFetch = fetch): Promise<void> {
+export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport: FirebaseFetch = fetch, deliver: SmtpDeliver = sendSmtp): Promise<void> {
   const controller = new AbortController();
   // Orçamento total das três chamadas: OAuth, geração e entrega.
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    if (!env.FIREBASE_PROJECT_ID || !env.SENDGRID_API_KEY?.trim() || !env.SENDGRID_SENDER_EMAIL) throw unavailable();
-    const sender = recoveryEmail({ email: env.SENDGRID_SENDER_EMAIL });
+    if (!env.FIREBASE_PROJECT_ID || !env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM_EMAIL) throw unavailable();
+    const sender = recoveryEmail({ email: env.SMTP_FROM_EMAIL });
     const accessToken = await googleAccessToken(env, transport, controller.signal);
     const generated = await transport(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${encodeURIComponent(env.FIREBASE_API_KEY)}`, {
-      method: 'POST', redirect: 'error', signal: controller.signal,
+      method: 'POST', redirect: 'manual', signal: controller.signal,
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Firebase-Locale': 'pt-BR' },
       body: JSON.stringify({ requestType: 'PASSWORD_RESET', email, targetProjectId: env.FIREBASE_PROJECT_ID, returnOobLink: true }),
     });
@@ -45,22 +46,12 @@ export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport
     if (generatedLink.protocol !== 'https:' || codes.length !== 1) throw unavailable();
     const link = buildResetUrl(env.FRONTEND_BASE_URL, codes[0]!);
     const content = passwordResetTemplate(link);
-    const delivered = await transport('https://api.sendgrid.com/v3/mail/send', {
-      method: 'POST', redirect: 'error', signal: controller.signal,
-      headers: { Authorization: `Bearer ${env.SENDGRID_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email }] }],
-        from: { email: sender, name: 'Astro' }, subject: 'Redefinição de senha — Astro',
-        content: [{ type: 'text/plain', value: content.text }, { type: 'text/html', value: content.html }],
-        attachments: [
-          { content: astroLogoBase64, type: 'image/png', filename: 'logo-astro.png', disposition: 'inline', content_id: 'logo-astro' },
-          { content: recoveryPlanetBase64, type: 'image/png', filename: 'recovery-planet.png', disposition: 'inline', content_id: 'recovery-planet' },
-        ],
-        tracking_settings: { click_tracking: { enable: false, enable_text: false }, open_tracking: { enable: false }, subscription_tracking: { enable: false }, ganalytics: { enable: false } },
-      }),
-    });
-    await delivered.body?.cancel();
-    if (delivered.status !== 202) throw unavailable();
+    await deliver({ from: sender, to: email, subject: 'Redefinição de senha — Astro', text: content.text, html: content.html,
+      attachments: [
+        { content: astroLogoBase64, filename: 'logo-astro.png', cid: 'logo-astro' },
+        { content: recoveryPlanetBase64, filename: 'recovery-planet.png', cid: 'recovery-planet' },
+      ],
+    }, env, controller.signal);
   } catch { throw unavailable(); }
   finally { clearTimeout(timeout); }
 }

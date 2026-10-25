@@ -12,7 +12,7 @@ export async function firebaseRequest(operation: 'sendOobCode' | 'resetPassword'
       headers: { 'Content-Type': 'application/json', 'X-Firebase-Locale': 'pt-BR' },
       body: JSON.stringify(payload),
       signal: controller.signal,
-      redirect: 'error',
+      redirect: 'manual',
     });
     const body: unknown = await response.json();
     if (response.ok) {

@@ -49,7 +49,7 @@ export async function exportRequestLog(request: Request, status: number, duratio
       headers: { 'Content-Type': 'application/json', Authorization: value },
       body: JSON.stringify(requestLog(request, status, durationMs, requestId, env.APP_ENV)),
       signal: controller.signal,
-      redirect: 'error',
+      redirect: 'manual',
     });
     if (!response.ok) { await response.body?.cancel(); return false; }
     if (response.status === 204) return true;
