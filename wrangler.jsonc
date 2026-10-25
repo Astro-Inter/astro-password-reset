@@ -8,7 +8,8 @@
   "vars": {
     "FRONTEND_BASE_URL": "https://astro-inter.github.io/astro-web",
     "ALLOWED_ORIGINS": "https://astro-inter.github.io",
-    "APP_ENV": "production"
+    "APP_ENV": "production",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://otlp-gateway-prod-sa-east-1.grafana.net/otlp"
   },
   "ratelimits": [{
     "name": "PASSWORD_RATE_LIMITER",

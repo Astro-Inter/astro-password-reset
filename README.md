@@ -87,6 +87,8 @@ Erros sempre usam este envelope, sem corpo bruto do Firebase:
 | FRONTEND_BASE_URL | https://astro-inter.github.io/astro-web | Contrato e validação de configuração; não altera templates remotamente |
 | ALLOWED_ORIGINS | https://astro-inter.github.io | Origens completas separadas por vírgula, sem caminhos |
 | APP_ENV | production | HTTPS obrigatório; development permite origens locais HTTP |
+| OTEL_EXPORTER_OTLP_ENDPOINT | https://otlp-gateway-prod-sa-east-1.grafana.net/otlp | Endpoint base público do Grafana; o exportador acrescenta /v1/logs |
+| OTEL_EXPORTER_OTLP_HEADERS | secret Cloudflare | Authorization no formato OTEL, com Basic e espaço codificado como %20 |
 | PASSWORD_RATE_LIMITER | binding em wrangler.jsonc | Cinco chamadas por minuto por IP, compartilhadas entre os dois endpoints |
 
 ## Firebase: configuração manual necessária
@@ -106,11 +108,32 @@ O binding nativo Cloudflare mantém contadores fora das variáveis globais do Wo
 
 A chave de limite usa somente `CF-Connecting-IP` fornecido pela borda Cloudflare; nunca X-Forwarded-For ou e-mail. Sem esse cabeçalho em produção, responde 503. Não publique o Worker atrás de proxy que aceite falsificação desse cabeçalho. CORS não autentica clientes externos: requisições sem Origin continuam sujeitas ao limite. IP compartilhado pode limitar usuários legítimos; ajuste conforme métricas sem registrar conteúdo das solicitações. Quotas do Firebase continuam aplicáveis.
 
-O corpo é limitado a 8 KiB mesmo sem Content-Length. Respostas usam no-store/no-referrer e não ecoam e-mail, código, senha ou erro bruto. O código não faz logs. Observabilidade do Worker está desabilitada na configuração: não habilite captura de corpos, URLs sensíveis, senhas ou códigos em Workers Logs, proxies e analytics. O e-mail do Firebase chega ao host estático com o código na URL; as políticas de acesso e retenção desse host precisam ser revisadas, pois a limpeza feita pelo JS não remove o acesso inicial dos logs do provedor.
+O corpo é limitado a 8 KiB mesmo sem Content-Length. Respostas usam no-store/no-referrer e não ecoam e-mail, código, senha ou erro bruto. Os logs OTLP usam exclusivamente os metadados permitidos descritos abaixo. A captura automática do Worker permanece desabilitada: não habilite captura de corpos, URLs sensíveis, senhas ou códigos em Workers Logs, proxies e analytics. O e-mail do Firebase chega ao host estático com o código na URL; as políticas de acesso e retenção desse host precisam ser revisadas, pois a limpeza feita pelo JS não remove o acesso inicial dos logs do provedor.
 
 O Web remove a query antes de inicializar o tracking e desabilita GTM durante a sessão iniciada em `/replacePassword`. Usa meta referrer no-referrer e fetch com referrerPolicy no-referrer. O código fica em memória, nunca localStorage/sessionStorage; atualizar a página depois da limpeza exige reabrir o link do e-mail. `continueUrl` e `apiKey` recebidos na query não controlam redirects ou o projeto Firebase. A navegação de sucesso é fixa.
 
 Referências: [binding e precisão do rate limit](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/), [limites Workers Free](https://developers.cloudflare.com/workers/platform/limits/). O serviço não requer armazenamento pago ou upgrade; confira disponibilidade e cotas na conta antes de publicar.
+
+## Logs no Grafana Cloud
+
+`src/telemetry.ts` envia logs OTLP/HTTP JSON diretamente para o Grafana, sem SDK Node, coletor ou processo persistente. Cada requisição concluída agenda uma exportação com `context.waitUntil`, fora do tempo de resposta da API. Há timeout de três segundos, sem retries; falhas do coletor não mudam a resposta da API. É uma entrega best effort: indisponibilidade e quotas podem causar perda de logs. Uma requisição ao coletor por chamada da API aumenta os subrequests; acompanhe o volume e a retenção no Grafana.
+
+Campos permitidos: serviço fixo `astro-password-reset`, ambiente conhecido, rota entre os dois caminhos definidos (ou `unmatched`), método conhecido, status HTTP, duração e UUID gerado pelo servidor. O UUID também aparece no header `X-Request-ID`. Status 2xx/3xx usam INFO, 4xx WARN e 5xx ERROR. Não há e-mail, IP, query string, URL completa, headers do cliente, corpo, senha, oobCode ou erro bruto do Firebase nos eventos. Isso cobre logs das requisições HTTP concluídas; não captura automaticamente exceções de inicialização, traces ou métricas.
+
+O endpoint público está no Wrangler. A credencial real fica somente em `.dev.vars` (ignorado) e no GitHub Actions secret `OTEL_EXPORTER_OTLP_HEADERS`, nunca no Git ou no frontend. O secret do GitHub não é copiado automaticamente para o Cloudflare por este projeto. Sem ambas as variáveis, a exportação fica inativa.
+
+Após o primeiro deploy criar o Worker, cadastre a mesma autorização no Cloudflare:
+
+```sh
+npx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS
+# Cole o valor OTEL completo: Authorization=Basic%20...
+```
+
+O exportador decodifica o `%20` e envia apenas o header Authorization. Não acrescente `/v1/logs` à variável de endpoint base; o código já faz isso. O endpoint fornecido foi validado com um evento sintético sem dados de usuários e respondeu HTTP 204 (aceito). O Worker ainda não existia na conta durante a configuração, portanto o secret Cloudflare e a emissão pela API publicada aguardam o deploy. Não foi feita alteração de senha real.
+
+Para consultar: no Grafana, abra Explore, selecione a fonte de logs/Loki e filtre `{service_name="astro-password-reset"}` no intervalo recente. O evento é `password_reset.request_completed`; os metadados permitem filtrar status, rota e request ID. A indexação pode demorar alguns minutos. A chave fornecida é de ingestão; a confirmação HTTP valida o recebimento, sem comprovar uma consulta no Explore.
+
+Referências: [endpoint OTLP Grafana](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/), [formato OTLP de logs](https://github.com/open-telemetry/opentelemetry-proto/blob/main/examples/logs.json).
 
 ## Deploy e verificação
 
@@ -135,7 +158,7 @@ O workflow Pages do Web cria `replacePassword/index.html` e `passwordChanged/ind
 
 ## Validação e limites da entrega
 
-- API: 39 testes aprovados, incluindo timeout, privacidade, contrato Firebase, CORS, validação, erros e execução no workerd com rate limit real local. Typecheck, bundle e npm audit sem vulnerabilidades.
+- API: 46 testes aprovados, incluindo timeout, privacidade, contrato Firebase, CORS, validação, erros, execução no workerd com rate limit real local e exportação OTLP. Typecheck e bundle aprovados; npm audit sem vulnerabilidades na base das dependências, que não mudou na integração Grafana.
 - Web: 391 testes aprovados, incluindo oito casos do fluxo integrado; build aprovado. Integração local do serviço real do Web com handler do Worker e Firebase simulado aprovada para envio, confirmação e código expirado.
 - Acesso Firebase Console, configuração do template, envio real, alteração de senha real, publicação do Worker e verificação de rotas no Pages ficam pendentes. O deploy está preparado; testes não dependem de produção.
 

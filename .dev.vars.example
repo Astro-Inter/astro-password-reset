@@ -2,3 +2,6 @@ FIREBASE_API_KEY=configure-a-chave-web-do-projeto
 FRONTEND_BASE_URL=http://localhost:5173
 ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 APP_ENV=development
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-sa-east-1.grafana.net/otlp
+# Apenas em .dev.vars local ou secret Cloudflare; nunca versionar o valor real.
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20SUBSTITUA_PELA_CREDENCIAL
