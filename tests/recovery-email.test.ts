@@ -15,12 +15,13 @@ function environment(): WorkerEnv {
 function request(): Request {
   return new Request('https://worker.test/auth/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '192.0.2.1' }, body: '{"email":"user@example.test"}' });
 }
-function providers(options: { firebaseCode?: string; mailStatus?: number; malformedLink?: boolean } = {}) {
+function providers(options: { firebaseCode?: string; mailStatus?: number; malformedLink?: boolean; privateAccount?: boolean } = {}) {
   const calls: { url: string; init: RequestInit }[] = [];
   const transport: typeof fetch = async (url, init) => {
     calls.push({ url: String(url), init: init! });
     if (String(url) === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'fake-oauth-token' });
     if (String(url).includes('identitytoolkit.googleapis.com')) {
+      if (options.privateAccount) return Response.json({ kind: 'identitytoolkit#GetOobConfirmationCodeResponse', email: 'user@example.test' });
       if (options.firebaseCode) return Response.json({ error: { message: options.firebaseCode } }, { status: 400 });
       return Response.json({ oobLink: options.malformedLink ? 'not-a-link' : 'https://test-project.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=fake-code&apiKey=ignored' });
     }
@@ -59,6 +60,14 @@ test('OAuth assinado, geração Firebase e entrega HTML/texto via SMTP', async (
   assert.equal(mail.attachments[0].cid, 'logo-astro');
   assert.equal(mail.attachments[1].cid, 'recovery-planet');
   assert.ok(Buffer.from(mail.attachments[0].content, 'base64').subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])));
+});
+
+test('proteção contra enumeração com HTTP 200 sem link mantém sucesso genérico e não envia SMTP', async () => {
+  const { transport, deliver, mails } = providers({ privateAccount: true });
+  const response = await handleRequest(request(), environment(), transport, deliver);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { success: true, message: recoveryMessage });
+  assert.equal(mails.length, 0);
 });
 
 for (const firebaseCode of ['EMAIL_NOT_FOUND', 'USER_DISABLED']) test(`conta indisponível mantém resposta genérica: ${firebaseCode}`, async () => {

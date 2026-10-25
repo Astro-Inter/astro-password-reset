@@ -40,6 +40,10 @@ export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport
       if (generated.status === 400 && ['EMAIL_NOT_FOUND', 'USER_DISABLED'].includes(message ?? '')) return;
       throw unavailable();
     }
+    // Firebase com proteção contra enumeração responde 200 sem link para conta ausente.
+    if (body && typeof body === 'object' && !('oobLink' in body) &&
+      'kind' in body && body.kind === 'identitytoolkit#GetOobConfirmationCodeResponse' &&
+      'email' in body && body.email === email) return;
     if (!body || typeof body !== 'object' || !('oobLink' in body) || typeof body.oobLink !== 'string') throw unavailable();
     const generatedLink = new URL(body.oobLink);
     const codes = generatedLink.searchParams.getAll('oobCode');

@@ -45,7 +45,7 @@ HTTP 200, inclusive para conta inexistente ou desabilitada:
 {"success":true,"message":"Se o e-mail informado estiver cadastrado, você receberá instruções para redefinir sua senha."}
 ```
 
-No modo `smtp`, o serviço envia `requestType: PASSWORD_RESET`, e-mail sem espaços nas pontas, `targetProjectId` e `returnOobLink: true` ao Firebase, com autorização OAuth de conta de serviço. O Firebase não envia e-mail nessa operação. O Worker extrai apenas o `oobCode` da resposta confiável e monta o destino fixo do Astro Web, sem redirecionamento controlado pelo cliente. O servidor SMTP precisa aceitar a mensagem com código 250 após DATA antes da resposta de sucesso; isso significa aceitação para processamento, não confirmação de chegada à caixa de entrada. Falhas operacionais retornam 503; conta inexistente/desabilitada mantém resposta genérica.
+No modo `smtp`, o serviço envia `requestType: PASSWORD_RESET`, e-mail sem espaços nas pontas, `targetProjectId` e `returnOobLink: true` ao Firebase, com autorização OAuth de conta de serviço. O Firebase não envia e-mail nessa operação. O Worker extrai apenas o `oobCode` da resposta confiável e monta o destino fixo do Astro Web, sem redirecionamento controlado pelo cliente. O servidor SMTP precisa aceitar a mensagem com código 250 após DATA antes da resposta de sucesso; isso significa aceitação para processamento, não confirmação de chegada à caixa de entrada. Falhas operacionais retornam 503; conta inexistente/desabilitada mantém resposta genérica, incluindo HTTP 200 sem link quando a proteção contra enumeração está ativa.
 
 O modo `native` permanece disponível explicitamente para usar e-mail do Firebase. Nesse modo, `continueUrl` não configura o handler; respostas sem e-mail são aceitas para preservar a proteção de privacidade. O Wrangler e o exemplo local estão configurados para `smtp`; falta de credenciais não causa fallback silencioso para outro remetente ou template.
 
@@ -200,7 +200,7 @@ O workflow Pages do Web cria `replacePassword/index.html` e `passwordChanged/ind
 
 ## Validação e limites da entrega
 
-- API: 66 testes aprovados, incluindo geração Firebase autenticada e envio SMTP simulados, assinatura JWT verificada, HTML/texto e logo, privacidade, timeout, CORS, execução no workerd, rate limit local e OTLP. Typecheck e bundle aprovados; npm audit sem vulnerabilidades após adicionar jose.
+- API: 67 testes aprovados, incluindo geração Firebase autenticada e envio SMTP simulados, assinatura JWT verificada, HTML/texto e logo, privacidade, timeout, CORS, execução no workerd, rate limit local e OTLP. Typecheck e bundle aprovados; npm audit sem vulnerabilidades após adicionar jose.
 - Web: 391 testes aprovados, incluindo oito casos do fluxo integrado; build aprovado. Integração local do serviço real do Web com handler do Worker e Firebase simulado aprovada para envio, confirmação e código expirado.
 - Template padrão Firebase foi consultado, mas não alterado. Autenticação Google e SMTP com STARTTLS validadas em workerd sem enviar mensagem. Envio real, alteração de senha real e verificação das rotas publicadas no Pages exigem uma conta de teste autorizada. Prévia local do HTML foi conferida. Os testes automatizados não dependem de produção.
 
