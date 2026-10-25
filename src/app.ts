@@ -3,6 +3,7 @@ import { firebaseRequest } from './firebase.ts';
 import { errorResponse, HttpError, json, readPayload } from './http.ts';
 import type { FirebaseFetch, WorkerEnv } from './types.ts';
 import { recoveryEmail, replacement } from './validation.ts';
+import { sendRecoveryEmail } from './recovery-email.ts';
 
 export const recoveryMessage = 'Se o e-mail informado estiver cadastrado, você receberá instruções para redefinir sua senha.';
 
@@ -38,7 +39,9 @@ export async function handleRequest(request: Request, env: WorkerEnv, transport:
     if (!allowed.success) throw new HttpError(429, 'RATE_LIMITED', 'Muitas solicitações. Aguarde um minuto e tente novamente.');
     const payload = await readPayload(request);
     if (url.pathname === '/auth/forgot-password') {
-      await firebaseRequest('sendOobCode', { requestType: 'PASSWORD_RESET', email: recoveryEmail(payload) }, env.FIREBASE_API_KEY, transport);
+      const email = recoveryEmail(payload);
+      if (env.EMAIL_DELIVERY_MODE === 'sendgrid') await sendRecoveryEmail(email, env, transport);
+      else await firebaseRequest('sendOobCode', { requestType: 'PASSWORD_RESET', email }, env.FIREBASE_API_KEY, transport);
       return json({ success: true, message: recoveryMessage }, 200, headers);
     }
     await firebaseRequest('resetPassword', replacement(payload), env.FIREBASE_API_KEY, transport);
