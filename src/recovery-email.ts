@@ -23,7 +23,7 @@ export function buildResetUrl(frontendBase: string, code: string): string {
 export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport: FirebaseFetch = fetch, deliver: SmtpDeliver = sendSmtp): Promise<void> {
   const controller = new AbortController();
   // Inclui OAuth, geração do link e aceitação SMTP da mensagem completa.
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), 60000);
   try {
     if (!env.FIREBASE_PROJECT_ID || !env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM_EMAIL) throw unavailable();
     const sender = recoveryEmail({ email: env.SMTP_FROM_EMAIL });
