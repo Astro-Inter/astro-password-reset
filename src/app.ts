@@ -3,11 +3,12 @@ import { firebaseRequest } from './firebase.ts';
 import { errorResponse, HttpError, json, readPayload } from './http.ts';
 import type { FirebaseFetch, WorkerEnv } from './types.ts';
 import { recoveryEmail, replacement } from './validation.ts';
+import { sendSmtp, type SmtpDeliver } from './smtp.ts';
 import { sendRecoveryEmail } from './recovery-email.ts';
 
 export const recoveryMessage = 'Se o e-mail informado estiver cadastrado, você receberá instruções para redefinir sua senha.';
 
-export async function handleRequest(request: Request, env: WorkerEnv, transport: FirebaseFetch = fetch): Promise<Response> {
+export async function handleRequest(request: Request, env: WorkerEnv, transport: FirebaseFetch = fetch, deliver: SmtpDeliver = sendSmtp): Promise<Response> {
   const headers = new Headers({ Vary: 'Origin' });
   try {
     const { origins, production } = configuration(env);
@@ -40,7 +41,7 @@ export async function handleRequest(request: Request, env: WorkerEnv, transport:
     const payload = await readPayload(request);
     if (url.pathname === '/auth/forgot-password') {
       const email = recoveryEmail(payload);
-      if (env.EMAIL_DELIVERY_MODE === 'sendgrid') await sendRecoveryEmail(email, env, transport);
+      if (env.EMAIL_DELIVERY_MODE === 'smtp') await sendRecoveryEmail(email, env, transport, deliver);
       else await firebaseRequest('sendOobCode', { requestType: 'PASSWORD_RESET', email }, env.FIREBASE_API_KEY, transport);
       return json({ success: true, message: recoveryMessage }, 200, headers);
     }

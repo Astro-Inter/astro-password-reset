@@ -13,7 +13,7 @@ export async function googleAccessToken(env: WorkerEnv, transport: FirebaseFetch
       .setAudience('https://oauth2.googleapis.com/token')
       .setIssuedAt(now).setExpirationTime(now + 300).sign(key);
     const response = await transport('https://oauth2.googleapis.com/token', {
-      method: 'POST', redirect: 'error', signal,
+      method: 'POST', redirect: 'manual', signal,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }).toString(),
     });

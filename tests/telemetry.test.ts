@@ -13,7 +13,7 @@ test('OTLP envia log JSON com Basic decodificado e endpoint /v1/logs', async () 
   const [url, options] = transport.mock.calls[0].arguments as unknown as [string, RequestInit];
   assert.equal(url, 'https://collector.test/otlp/v1/logs');
   assert.equal((options.headers as Record<string, string>).Authorization, 'Basic dXNlcjpwYXNz');
-  assert.equal(options.redirect, 'error');
+  assert.equal(options.redirect, 'manual');
   const body = JSON.parse(options.body as string);
   assert.equal(body.resourceLogs[0].resource.attributes[0].value.stringValue, 'astro-password-reset');
   const log = body.resourceLogs[0].scopeLogs[0].logRecords[0];
