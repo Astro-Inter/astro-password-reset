@@ -22,7 +22,7 @@ O Wrangler inicia em `http://localhost:8787`. `.dev.vars` é ignorado pelo Git. 
 
 ## Arquitetura
 
-`src/index.ts` expõe o handler e agenda telemetria; `app.ts` aplica configuração, HTTPS, CORS, roteamento e limite por IP. `http.ts` interpreta JSON e padroniza respostas. `validation.ts` valida campos. `firebase.ts` confirma a senha e suporta envio nativo opcional. `google-auth.ts` usa jose/Web Crypto para obter autorização Google. `recovery-email.ts` gera o link no Firebase e envia via SMTP/TLS, com orçamento total de oito segundos. As chamadas HTTP usam redirect manual, compatível com workerd, e rejeitam respostas de redirecionamento. `src/templates/` contém HTML/texto e a logo inline. `types.ts` descreve o ambiente; os tipos de runtime são gerados pelo Wrangler.
+`src/index.ts` expõe o handler e agenda telemetria; `app.ts` aplica configuração, HTTPS, CORS, roteamento e limite por IP. `http.ts` interpreta JSON e padroniza respostas. `validation.ts` valida campos. `firebase.ts` confirma a senha e suporta envio nativo opcional. `google-auth.ts` usa jose/Web Crypto para obter autorização Google. `recovery-email.ts` gera o link no Firebase e envia via SMTP/TLS, com orçamento total de trinta segundos. As chamadas HTTP usam redirect manual, compatível com workerd, e rejeitam respostas de redirecionamento. `src/templates/` contém HTML/texto e a logo inline. `types.ts` descreve o ambiente; os tipos de runtime são gerados pelo Wrangler.
 
 Fluxo padrão: Web → Worker → OAuth Google → Firebase REST gera link sem enviar e-mail → SMTP entrega HTML/texto Astro → `/replacePassword?mode=resetPassword&oobCode=...` → Worker confirma nova senha no Firebase → Web abre `/passwordChanged`. A conta é determinada exclusivamente pelo código. O serviço não cria sessões e não altera usuários por e-mail informado no reset.
 
@@ -207,3 +207,7 @@ O workflow Pages do Web cria `replacePassword/index.html` e `passwordChanged/ind
 ## Revisão Git
 
 `main` exige PR, uma aprovação, descarte de aprovações obsoletas e aprovação do último push por outra pessoa, inclusive administradores. Force push e exclusão estão bloqueados. A implementação usa a tarefa pai SCRUM-625; subtarefas 626 (estrutura), 627 (API/testes), 628 (Web), 629 (operação), 630 (Grafana) e 631 (e-mail próprio) descrevem as entregas. Não fazer merge sem revisão humana.
+
+## Correção de timeout — SCRUM-643
+
+O envio completo autorizado reproduziu cancelamento aos oito segundos durante DATA, após autenticação SMTP e aceitação do destinatário. Com orçamento de trinta segundos, o SMTP aceitou a mensagem em aproximadamente 10,7 segundos no workerd local. O Web deve aguardar 35 segundos para permitir a resposta do Worker. A resposta de sucesso continua dependendo da aceitação SMTP (250 após DATA), sem garantir chegada à caixa de entrada. Não há retry automático, evitando duplicar mensagens após respostas ambíguas.

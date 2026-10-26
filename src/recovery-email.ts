@@ -22,8 +22,8 @@ export function buildResetUrl(frontendBase: string, code: string): string {
 /** Gera o código no Firebase e entrega HTML próprio, como o fluxo Ludos. */
 export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport: FirebaseFetch = fetch, deliver: SmtpDeliver = sendSmtp): Promise<void> {
   const controller = new AbortController();
-  // Orçamento total das três chamadas: OAuth, geração e entrega.
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  // Inclui OAuth, geração do link e aceitação SMTP da mensagem completa.
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
     if (!env.FIREBASE_PROJECT_ID || !env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM_EMAIL) throw unavailable();
     const sender = recoveryEmail({ email: env.SMTP_FROM_EMAIL });

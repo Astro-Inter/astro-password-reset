@@ -105,15 +105,38 @@ test('link usa rota fixa e codifica o código; template escapa atributos HTML', 
   assert.throws(() => passwordResetTemplate('javascript:alert(1)'));
 });
 
-test('orçamento total de oito segundos cancela a entrega sem vazar erro', async context => {
+test('orçamento total de trinta segundos cancela a entrega sem vazar erro', async context => {
   context.mock.timers.enable({ apis: ['setTimeout'] });
+  let requestSignal!: AbortSignal;
   let started!: () => void;
   const ready = new Promise<void>(resolve => { started = resolve; });
   const pending = sendRecoveryEmail('user@example.test', environment(), async (_url, init) => new Promise((_resolve, reject) => {
+    requestSignal = init!.signal!;
     started(); init!.signal!.addEventListener('abort', () => reject(new Error('private-error')));
   }));
   await ready;
   const rejected = assert.rejects(pending, { code: 'PROVIDER_UNAVAILABLE' });
-  context.mock.timers.tick(8000);
+  context.mock.timers.tick(29999);
+  assert.equal(requestSignal.aborted, false);
+  context.mock.timers.tick(1);
   await rejected;
+});
+
+
+test('aceita entrega SMTP após quinze segundos sem cancelar no limite antigo', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const { transport } = providers();
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  const deliver: SmtpDeliver = async (_message, _env, signal) => new Promise((resolve, reject) => {
+    setTimeout(resolve, 15000);
+    signal.addEventListener('abort', () => reject(new Error('private-smtp-timeout')), { once: true });
+    started();
+  });
+  const pending = handleRequest(request(), environment(), transport, deliver);
+  await ready;
+  context.mock.timers.tick(15000);
+  const response = await pending;
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { success: true, message: recoveryMessage });
 });
