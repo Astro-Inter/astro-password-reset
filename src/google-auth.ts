@@ -18,9 +18,9 @@ export async function googleAccessToken(env: WorkerEnv, transport: FirebaseFetch
       body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }).toString(),
     });
     const body: unknown = await response.json();
-    if (!response.ok || !body || typeof body !== 'object' || !('access_token' in body) || typeof body.access_token !== 'string' || !body.access_token) throw new Error('INVALID_TOKEN');
+    if (!response.ok || !body || typeof body !== 'object' || !('access_token' in body) || typeof body.access_token !== 'string' || !body.access_token) throw Object.assign(new Error('INVALID_TOKEN'), { code: `GOOGLE_OAUTH_HTTP_${response.status}` });
     return body.access_token;
-  } catch {
-    throw new HttpError(503, 'PROVIDER_UNAVAILABLE', 'Não foi possível concluir a solicitação agora. Tente novamente.');
+  } catch (error) {
+    throw Object.assign(new HttpError(503, 'PROVIDER_UNAVAILABLE', 'Não foi possível concluir a solicitação agora. Tente novamente.'), { cause: error });
   }
 }

@@ -211,3 +211,7 @@ O workflow Pages do Web cria `replacePassword/index.html` e `passwordChanged/ind
 ## Correção de timeout — SCRUM-643
 
 O envio completo autorizado reproduziu cancelamento aos oito segundos durante DATA, após autenticação SMTP e aceitação do destinatário. Com orçamento de trinta segundos, o SMTP aceitou a mensagem em aproximadamente 10,7 segundos no workerd local. O orçamento de produção passa a 60 segundos e o Web deve aguardar 70 segundos para permitir a resposta do Worker. A resposta de sucesso continua dependendo da aceitação SMTP (250 após DATA), sem garantir chegada à caixa de entrada. Não há retry automático, evitando duplicar mensagens após respostas ambíguas.
+
+## Diagnóstico operacional
+
+Consulte [os campos e limites dos novos diagnósticos](docs/observability-diagnostics.md) para investigar falhas por requisição ou execução no Grafana.

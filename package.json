@@ -13,9 +13,10 @@
     "typegen": "node ./node_modules/wrangler/bin/wrangler.js types",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
     "pretest": "npm run build",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts && npm run test:diagnostics",
     "build": "node ./node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir dist",
-    "deploy": "node ./node_modules/wrangler/bin/wrangler.js deploy"
+    "deploy": "node ./node_modules/wrangler/bin/wrangler.js deploy",
+    "test:diagnostics": "node --experimental-strip-types --test diagnostics.contract.mjs"
   },
   "devDependencies": {
     "miniflare": "5.20261019.2-beta",

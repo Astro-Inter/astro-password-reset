@@ -2,7 +2,7 @@ import type { WorkerEnv } from './types.ts';
 
 type LogEnv = Pick<WorkerEnv, 'APP_ENV' | 'OTEL_EXPORTER_OTLP_ENDPOINT' | 'OTEL_EXPORTER_OTLP_HEADERS'>;
 
-export function requestLog(request: Request, status: number, durationMs: number, requestId: string, environment: string, now = Date.now()): object {
+export function requestLog(request: Request, status: number, durationMs: number, requestId: string, environment: string, now = Date.now(), failure: Record<string, string | number | boolean> = {}): object {
   const pathname = new URL(request.url).pathname;
   const route = ['/auth/forgot-password', '/auth/reset-password'].includes(pathname) ? pathname : 'unmatched';
   const method = ['GET', 'POST', 'OPTIONS', 'PUT', 'PATCH', 'DELETE', 'HEAD'].includes(request.method) ? request.method : 'OTHER';
@@ -24,6 +24,7 @@ export function requestLog(request: Request, status: number, durationMs: number,
           { key: 'http.response.status_code', value: { intValue: status } },
           { key: 'http.server.request.duration_ms', value: { doubleValue: Math.max(0, Math.round(durationMs)) } },
           { key: 'request.id', value: { stringValue: requestId } },
+          ...Object.entries(failure).filter(([key]) => ['stage','dependency','dependency_duration_ms','error_type','error_code','error_message','error_frames','error_causes'].includes(key)).map(([key, value]) => ({ key, value: { stringValue: String(value) } })),
         ],
       }] }],
     }],
@@ -31,7 +32,7 @@ export function requestLog(request: Request, status: number, durationMs: number,
 }
 
 /** Allowlist de metadados: nunca recebe corpo, headers, erro bruto, e-mail ou código. */
-export async function exportRequestLog(request: Request, status: number, durationMs: number, requestId: string, env: LogEnv, transport: typeof fetch = fetch): Promise<boolean> {
+export async function exportRequestLog(request: Request, status: number, durationMs: number, requestId: string, env: LogEnv, transport: typeof fetch = fetch, failure: Record<string, string | number | boolean> = {}): Promise<boolean> {
   if (!env.OTEL_EXPORTER_OTLP_ENDPOINT || !env.OTEL_EXPORTER_OTLP_HEADERS) return false;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
@@ -47,7 +48,7 @@ export async function exportRequestLog(request: Request, status: number, duratio
     const response = await transport(endpoint.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: value },
-      body: JSON.stringify(requestLog(request, status, durationMs, requestId, env.APP_ENV)),
+      body: JSON.stringify(requestLog(request, status, durationMs, requestId, env.APP_ENV, Date.now(), failure)),
       signal: controller.signal,
       redirect: 'manual',
     });

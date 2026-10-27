@@ -1,3 +1,4 @@
+import { observe } from "./diagnostics.ts";
 import { HttpError } from './http.ts';
 import type { WorkerEnv } from './types.ts';
 
@@ -42,6 +43,7 @@ export function mimeMessage(mail: SmtpMessage): string {
 
 /** Sem mensagem, verifica TLS e autenticação sem enviar e-mail. */
 export async function smtpSession(env: WorkerEnv, signal: AbortSignal, mail?: SmtpMessage, connector?: SmtpConnect): Promise<void> {
+  let stage = "smtp_configuration";
   let socket: SmtpSocket | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
@@ -54,6 +56,7 @@ export async function smtpSession(env: WorkerEnv, signal: AbortSignal, mail?: Sm
     socket = connect({ hostname: env.SMTP_HOST, port }, { secureTransport: port === 465 ? 'on' : 'starttls', allowHalfOpen: false });
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) throw unavailable();
+    stage = "smtp_connect";
     await socket.opened;
     reader = socket.readable.getReader(); writer = socket.writable.getWriter();
     let buffered = '';
@@ -74,7 +77,9 @@ export async function smtpSession(env: WorkerEnv, signal: AbortSignal, mail?: Sm
         code = match[1]!; result += line + '\r\n';
         if (result.length > 32768) throw unavailable();
         if (match[2] === ' ') {
-          if (!expected.includes(Number(code))) throw unavailable();
+          if (!expected.includes(Number(code))) throw Object.assign(unavailable(), {
+            cause: Object.assign(new Error('SMTP reply rejected'), { code: `SMTP_REPLY_${code}` }),
+          });
           return result;
         }
       }
@@ -84,10 +89,13 @@ export async function smtpSession(env: WorkerEnv, signal: AbortSignal, mail?: Sm
       await writer!.write(new TextEncoder().encode(value + '\r\n'));
       return reply(expected);
     };
+    stage = "smtp_greeting";
     await reply([220]);
+    stage = "smtp_ehlo";
     let capabilities = await command('EHLO astro-inter.github.io', [250]);
     if (port === 587) {
       if (!/^250[ -]STARTTLS\b/im.test(capabilities)) throw unavailable();
+      stage = "smtp_starttls";
       await command('STARTTLS', [220]);
       if (buffered) throw unavailable();
       reader.releaseLock(); writer.releaseLock();
@@ -96,16 +104,22 @@ export async function smtpSession(env: WorkerEnv, signal: AbortSignal, mail?: Sm
       capabilities = await command('EHLO astro-inter.github.io', [250]);
     }
     if (!/^250[ -]AUTH\b[^\r\n]*\bLOGIN\b/im.test(capabilities)) throw unavailable();
+    stage = "smtp_authentication";
     await command('AUTH LOGIN', [334]);
     await command(base64(env.SMTP_USER), [334]);
     await command(base64(env.SMTP_PASSWORD), [235]);
     if (!mail) return;
+    stage = "smtp_sender";
     await command(`MAIL FROM:<${mail.from}>`, [250]);
+    stage = "smtp_recipient";
     await command(`RCPT TO:<${mail.to}>`, [250, 251]);
     const mime = mimeMessage(mail);
+    stage = "smtp_data";
     await command('DATA', [354]);
     await command(mime.replace(/^\./gm, '..') + '\r\n.', [250]);
-  } catch { throw unavailable(); }
+  } catch (error) {
+    await observe(stage, "smtp", () => { throw Object.assign(unavailable(), { cause: error }); });
+  }
   finally {
     signal.removeEventListener('abort', abort);
     reader?.releaseLock(); writer?.releaseLock();

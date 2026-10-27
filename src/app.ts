@@ -1,3 +1,4 @@
+import { observe } from "./diagnostics.ts";
 import { configuration } from './config.ts';
 import { firebaseRequest } from './firebase.ts';
 import { errorResponse, HttpError, json, readPayload } from './http.ts';
@@ -8,7 +9,7 @@ import { sendRecoveryEmail } from './recovery-email.ts';
 
 export const recoveryMessage = 'Se o e-mail informado estiver cadastrado, você receberá instruções para redefinir sua senha.';
 
-export async function handleRequest(request: Request, env: WorkerEnv, transport: FirebaseFetch = fetch, deliver: SmtpDeliver = sendSmtp): Promise<Response> {
+export async function handleRequest(request: Request, env: WorkerEnv, transport: FirebaseFetch = fetch, deliver: SmtpDeliver = sendSmtp, onFailure: (error: unknown) => void = () => {}): Promise<Response> {
   const headers = new Headers({ Vary: 'Origin' });
   try {
     const { origins, production } = configuration(env);
@@ -41,12 +42,12 @@ export async function handleRequest(request: Request, env: WorkerEnv, transport:
     const payload = await readPayload(request);
     if (url.pathname === '/auth/forgot-password') {
       const email = recoveryEmail(payload);
-      if (env.EMAIL_DELIVERY_MODE === 'smtp') await sendRecoveryEmail(email, env, transport, deliver);
-      else await firebaseRequest('sendOobCode', { requestType: 'PASSWORD_RESET', email }, env.FIREBASE_API_KEY, transport);
+      if (env.EMAIL_DELIVERY_MODE === 'smtp') await observe('recovery_email', 'firebase_smtp', () => sendRecoveryEmail(email, env, transport, deliver));
+      else await observe('send_reset_code', 'firebase', () => firebaseRequest('sendOobCode', { requestType: 'PASSWORD_RESET', email }, env.FIREBASE_API_KEY, transport));
       return json({ success: true, message: recoveryMessage }, 200, headers);
     }
-    await firebaseRequest('resetPassword', replacement(payload), env.FIREBASE_API_KEY, transport);
+    await observe('reset_password', 'firebase', () => firebaseRequest('resetPassword', replacement(payload), env.FIREBASE_API_KEY, transport));
     return json({ success: true, message: 'Senha alterada com sucesso.' }, 200, headers);
-  } catch (error: unknown) { return errorResponse(error, headers); }
+  } catch (error: unknown) { onFailure(error); return errorResponse(error, headers); }
 }
 
