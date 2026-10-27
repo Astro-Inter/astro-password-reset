@@ -21,7 +21,9 @@ export async function firebaseRequest(operation: 'sendOobCode' | 'resetPassword'
       if (operation === 'resetPassword' && (!('email' in body) || typeof body.email !== 'string')) throw unavailable();
       return;
     }
-    if (response.status >= 500) throw unavailable();
+    if (response.status >= 500) throw Object.assign(unavailable(), {
+      cause: Object.assign(new Error('Firebase request rejected'), { code: `FIREBASE_HTTP_${response.status}` }),
+    });
     const error = body && typeof body === 'object' && 'error' in body ? body.error : null;
     const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : '';
     const code = message.split(/[ :]/)[0];
@@ -33,9 +35,11 @@ export async function firebaseRequest(operation: 'sendOobCode' | 'resetPassword'
       throw new HttpError(400, 'INVALID_PASSWORD', 'A senha não atende à política de segurança da conta. Escolha outra senha.');
     }
     // Limites do provedor podem depender da conta; não expor isso como erro de e-mail.
-    throw unavailable();
+    throw Object.assign(unavailable(), {
+      cause: Object.assign(new Error('Firebase request rejected'), { code: `FIREBASE_HTTP_${response.status}` }),
+    });
   } catch (error: unknown) {
     if (error instanceof HttpError) throw error;
-    throw unavailable();
+    throw Object.assign(unavailable(), { cause: error });
   } finally { clearTimeout(timeout); }
 }

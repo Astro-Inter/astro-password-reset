@@ -1,3 +1,4 @@
+import { observe } from "./diagnostics.ts";
 import { sendSmtp, type SmtpDeliver } from './smtp.ts';
 import { googleAccessToken } from './google-auth.ts';
 import { HttpError } from './http.ts';
@@ -27,7 +28,7 @@ export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport
   try {
     if (!env.FIREBASE_PROJECT_ID || !env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM_EMAIL) throw unavailable();
     const sender = recoveryEmail({ email: env.SMTP_FROM_EMAIL });
-    const accessToken = await googleAccessToken(env, transport, controller.signal);
+    const accessToken = await observe("oauth_token", "google_oauth", () => googleAccessToken(env, transport, controller.signal));
     const generated = await transport(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${encodeURIComponent(env.FIREBASE_API_KEY)}`, {
       method: 'POST', redirect: 'manual', signal: controller.signal,
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Firebase-Locale': 'pt-BR' },
@@ -38,7 +39,9 @@ export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport
       const error = body && typeof body === 'object' && 'error' in body ? body.error : undefined;
       const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message.split(/[ :]/)[0] : '';
       if (generated.status === 400 && ['EMAIL_NOT_FOUND', 'USER_DISABLED'].includes(message ?? '')) return;
-      throw unavailable();
+      throw Object.assign(unavailable(), {
+        cause: Object.assign(new Error('Firebase link request rejected'), { code: `FIREBASE_HTTP_${generated.status}` }),
+      });
     }
     // Firebase com proteção contra enumeração responde 200 sem link para conta ausente.
     if (body && typeof body === 'object' && !('oobLink' in body) &&
@@ -50,12 +53,12 @@ export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport
     if (generatedLink.protocol !== 'https:' || codes.length !== 1) throw unavailable();
     const link = buildResetUrl(env.FRONTEND_BASE_URL, codes[0]!);
     const content = passwordResetTemplate(link);
-    await deliver({ from: sender, to: email, subject: 'Redefinição de senha — Astro', text: content.text, html: content.html,
+    await observe("smtp_delivery", "smtp", () => deliver({ from: sender, to: email, subject: 'Redefinição de senha — Astro', text: content.text, html: content.html,
       attachments: [
         { content: astroLogoBase64, filename: 'logo-astro.png', cid: 'logo-astro' },
         { content: recoveryPlanetBase64, filename: 'recovery-planet.png', cid: 'recovery-planet' },
       ],
-    }, env, controller.signal);
-  } catch { throw unavailable(); }
+    }, env, controller.signal));
+  } catch (error) { throw Object.assign(unavailable(), { cause: error }); }
   finally { clearTimeout(timeout); }
 }
