@@ -87,10 +87,10 @@ for (const options of [{ mailStatus: 401 }, { mailStatus: 429 }, { mailStatus: 5
 
 test('credenciais ausentes, PEM inválido e token rejeitado são erros seguros', async () => {
   const { transport, deliver } = providers();
-  for (const env of [{ ...environment(), SMTP_PASSWORD: '' }, { ...environment(), FIREBASE_PRIVATE_KEY: 'invalid' }]) {
-    await assert.rejects(sendRecoveryEmail('user@example.test', env, transport, deliver), { code: 'PROVIDER_UNAVAILABLE' });
+  for (const [env, code] of [[{ ...environment(), SMTP_PASSWORD: '' }, 'EMAIL_CONFIGURATION_ERROR'], [{ ...environment(), FIREBASE_PRIVATE_KEY: 'invalid' }, 'FIREBASE_AUTH_UNAVAILABLE']] as const) {
+    await assert.rejects(sendRecoveryEmail('user@example.test', env, transport, deliver), { code });
   }
-  await assert.rejects(sendRecoveryEmail('user@example.test', environment(), async () => Response.json({ error: 'invalid_grant' }, { status: 400 })), { code: 'PROVIDER_UNAVAILABLE' });
+  await assert.rejects(sendRecoveryEmail('user@example.test', environment(), async () => Response.json({ error: 'invalid_grant' }, { status: 400 })), { code: 'FIREBASE_AUTH_UNAVAILABLE' });
 });
 
 test('link usa rota fixa e codifica o código; template escapa atributos HTML', () => {
@@ -115,7 +115,7 @@ test('orçamento total de sessenta segundos cancela a entrega sem vazar erro', a
     started(); init!.signal!.addEventListener('abort', () => reject(new Error('private-error')));
   }));
   await ready;
-  const rejected = assert.rejects(pending, { code: 'PROVIDER_UNAVAILABLE' });
+  const rejected = assert.rejects(pending, { code: 'PROVIDER_TIMEOUT' });
   context.mock.timers.tick(59999);
   assert.equal(requestSignal.aborted, false);
   context.mock.timers.tick(1);
@@ -139,4 +139,32 @@ test('aceita entrega SMTP após quarenta e cinco segundos sem cancelar no limite
   const response = await pending;
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { success: true, message: recoveryMessage });
+});
+
+for (const [reason, expected] of [
+  ['TOO_MANY_ATTEMPTS_TRY_LATER', 'FIREBASE_UNAVAILABLE'],
+  ['QUOTA_EXCEEDED', 'FIREBASE_UNAVAILABLE'],
+  ['PERMISSION_DENIED', 'FIREBASE_CONFIGURATION_ERROR'],
+  ['UNKNOWN_PRIVATE_REASON:user@example.test', 'FIREBASE_UNAVAILABLE'],
+]) test(`resposta pública segura e diagnóstico Firebase: ${reason}`, async () => {
+  const { transport, deliver, mails } = providers({ firebaseCode: reason });
+  let failure: unknown;
+  const response = await handleRequest(request(), environment(), transport, deliver, error => { failure = error; });
+  assert.equal(response.status, 503);
+  const text = await response.text();
+  assert.equal(JSON.parse(text).error.code, expected);
+  assert.doesNotMatch(text, /TOO_MANY|QUOTA|PERMISSION|user@example|UNKNOWN_PRIVATE/);
+  const { diagnostic } = await import('../src/diagnostics.ts');
+  assert.equal(diagnostic(failure).error_code, reason.startsWith('UNKNOWN') ? 'FIREBASE_HTTP_400' : `FIREBASE_${reason}`);
+  assert.equal(mails.length, 0);
+});
+
+test('falha SMTP tem código público próprio sem expor resposta bruta', async () => {
+  const { transport, deliver } = providers({ mailStatus: 500 });
+  const response = await handleRequest(request(), environment(), transport, deliver);
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.error.code, 'EMAIL_DELIVERY_UNAVAILABLE');
+  assert.doesNotMatch(JSON.stringify(body), /private-smtp/);
+  assert.equal(response.headers.get('Access-Control-Expose-Headers'), 'X-Request-ID, Retry-After');
 });

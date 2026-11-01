@@ -1,3 +1,4 @@
+import { firebaseFailure, dependencyFailure } from './provider-errors.ts';
 import { HttpError } from './http.ts';
 import type { FirebaseFetch } from './types.ts';
 
@@ -21,9 +22,7 @@ export async function firebaseRequest(operation: 'sendOobCode' | 'resetPassword'
       if (operation === 'resetPassword' && (!('email' in body) || typeof body.email !== 'string')) throw unavailable();
       return;
     }
-    if (response.status >= 500) throw Object.assign(unavailable(), {
-      cause: Object.assign(new Error('Firebase request rejected'), { code: `FIREBASE_HTTP_${response.status}` }),
-    });
+    if (response.status >= 500) throw firebaseFailure(response.status, body);
     const error = body && typeof body === 'object' && 'error' in body ? body.error : null;
     const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : '';
     const code = message.split(/[ :]/)[0];
@@ -35,11 +34,10 @@ export async function firebaseRequest(operation: 'sendOobCode' | 'resetPassword'
       throw new HttpError(400, 'INVALID_PASSWORD', 'A senha não atende à política de segurança da conta. Escolha outra senha.');
     }
     // Limites do provedor podem depender da conta; não expor isso como erro de e-mail.
-    throw Object.assign(unavailable(), {
-      cause: Object.assign(new Error('Firebase request rejected'), { code: `FIREBASE_HTTP_${response.status}` }),
-    });
+    throw firebaseFailure(response.status, body);
   } catch (error: unknown) {
+    if (controller.signal.aborted) throw dependencyFailure('PROVIDER_TIMEOUT', 'O serviço externo demorou para responder. Tente novamente mais tarde.', error);
     if (error instanceof HttpError) throw error;
-    throw Object.assign(unavailable(), { cause: error });
+    throw dependencyFailure('FIREBASE_UNAVAILABLE', 'Não foi possível acessar o serviço de autenticação. Tente novamente mais tarde.', error);
   } finally { clearTimeout(timeout); }
 }
