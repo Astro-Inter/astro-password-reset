@@ -21,6 +21,6 @@ export async function googleAccessToken(env: WorkerEnv, transport: FirebaseFetch
     if (!response.ok || !body || typeof body !== 'object' || !('access_token' in body) || typeof body.access_token !== 'string' || !body.access_token) throw Object.assign(new Error('INVALID_TOKEN'), { code: `GOOGLE_OAUTH_HTTP_${response.status}` });
     return body.access_token;
   } catch (error) {
-    throw Object.assign(new HttpError(503, 'PROVIDER_UNAVAILABLE', 'Não foi possível concluir a solicitação agora. Tente novamente.'), { cause: error });
+    throw Object.assign(new HttpError(503, 'FIREBASE_AUTH_UNAVAILABLE', 'Não foi possível autenticar a integração com o serviço de autenticação. Contate o suporte se persistir.'), { cause: error });
   }
 }

@@ -81,7 +81,55 @@ Erros sempre usam este envelope, sem corpo bruto do Firebase:
 | 404 / 405 | NOT_FOUND / METHOD_NOT_ALLOWED | Rota ou método não permitido |
 | 413 / 415 | PAYLOAD_TOO_LARGE / UNSUPPORTED_MEDIA_TYPE | Corpo acima de 8 KiB ou Content-Type incorreto |
 | 429 | RATE_LIMITED | Limite local excedido; Retry-After: 60 |
-| 503 | PROVIDER_UNAVAILABLE / SERVICE_UNAVAILABLE | Rede, timeout, quota/configuração do provedor ou ambiente inválido |
+| 503 | FIREBASE_UNAVAILABLE | Firebase recusou a operação, está indisponível ou houve falha de rede. Também cobre limites do provedor sem revelar informações da conta |
+| 503 | FIREBASE_CONFIGURATION_ERROR | Firebase informou chave, projeto, permissão ou operação mal configurada; suporte deve corrigir a integração |
+| 503 | FIREBASE_AUTH_UNAVAILABLE | Não foi possível obter autorização OAuth; pode ser credencial ausente/inválida, recusa do Google ou falha de comunicação |
+| 503 | EMAIL_CONFIGURATION_ERROR | Falta projeto Firebase ou uma das configurações SMTP obrigatórias verificadas antes do envio |
+| 503 | EMAIL_DELIVERY_UNAVAILABLE | Falha durante a entrega SMTP (conexão, TLS, autenticação, destinatário ou DATA); envio não confirmado |
+| 503 | PROVIDER_TIMEOUT | Prazo total externo excedido: 60 s na recuperação ou 8 s na confirmação da senha |
+| 503 | PROVIDER_UNAVAILABLE | Resposta inesperada/inválida do provedor ou falha operacional ainda não classificada |
+| 503 | SERVICE_UNAVAILABLE | Ambiente/binding inválido, ausência do IP Cloudflare em produção ou falha interna sem classificação |
+
+## Como interpretar os retornos
+
+Use o status HTTP e `error.code` para decidir a ação; `error.message` é texto para exibição e pode mudar. O envelope permanece compatível: `success: false` e `error: { code, message }`. Novos códigos de dependência substituem parte dos antigos `PROVIDER_UNAVAILABLE`; clientes devem manter um fallback para códigos desconhecidos. Todos esses novos erros usam HTTP 503, nunca sucesso simulado.
+
+- **200 em forgot-password:** solicitação processada. Para conta elegível no modo SMTP, o servidor SMTP aceitou a mensagem após DATA. Não garante chegada à caixa de entrada. Conta ausente/desabilitada continua com o mesmo 200 e mensagem genérica, sem enviar SMTP.
+- **200 em reset-password:** Firebase confirmou a alteração da senha.
+- **204 em OPTIONS:** preflight CORS autorizado, sem corpo e sem solicitar e-mail/alterar senha.
+- **400:** corrija os dados. `INVALID_OR_EXPIRED_CODE` exige novo link; `INVALID_PASSWORD` exige senha conforme a política. O status não informa se uma conta existe.
+- **403:** confira origem e cabeçalhos permitidos. O navegador pode ocultar o corpo quando a origem é recusada.
+- **404:** caminho inexistente (por exemplo GET `/`); não significa falha no envio. Use os dois caminhos `/auth/...` documentados acima.
+- **405:** use POST; OPTIONS serve apenas para preflight. O POST deve enviar `Content-Type: application/json`.
+- **413 / 415:** reduza o corpo para até 8192 bytes ou corrija Content-Type, respectivamente.
+- **429 / RATE_LIMITED:** limite do Worker por IP, compartilhado pelos endpoints. Aguarde `Retry-After: 60`; não confundir com bloqueio/quota do Firebase.
+- **503:** consulte o código específico na tabela e o log correlacionado. Configuração e autenticação persistentes exigem suporte. Não repita automaticamente o envio ou a troca de senha: uma falha/timeout pode acontecer após o provedor aceitar a operação.
+
+Exemplo de falha na geração do link:
+
+```json
+{"success":false,"error":{"code":"FIREBASE_UNAVAILABLE","message":"Não foi possível concluir a operação no serviço de autenticação. Tente novamente mais tarde."}}
+```
+
+Toda resposta emitida pelo handler publicado inclui `X-Request-ID`. Guarde esse identificador ao reportar uma falha e busque o mesmo `request_id` no Grafana. Ele não é token de autenticação. CORS expõe `X-Request-ID` e `Retry-After` às origens permitidas; falhas geradas pela própria infraestrutura podem ter outro formato.
+
+### Diagnóstico seguro do Firebase no Grafana
+
+O cliente não recebe mensagens brutas, credenciais, e-mail ou detalhes de limites por conta. Nos logs, uma lista fechada preserva apenas os seguintes motivos conhecidos:
+
+| `error_code` no log | Significado / ação operacional |
+| --- | --- |
+| FIREBASE_TOO_MANY_ATTEMPTS_TRY_LATER | Proteção contra repetição/abuso; interromper tentativas repetidas e aguardar. Não há prazo fixo garantido |
+| FIREBASE_QUOTA_EXCEEDED | Quota do provedor atingida; verificar uso e limites no projeto Firebase |
+| FIREBASE_PERMISSION_DENIED / FIREBASE_INSUFFICIENT_PERMISSION | Conferir permissões da conta de serviço no projeto |
+| FIREBASE_INVALID_API_KEY / FIREBASE_API_KEY_INVALID | Conferir chave Web e suas restrições para chamadas servidor-servidor |
+| FIREBASE_PROJECT_NOT_FOUND / FIREBASE_CONFIGURATION_NOT_FOUND | Conferir projeto e configuração do Authentication |
+| FIREBASE_OPERATION_NOT_ALLOWED | Conferir se a operação/provedor de autenticação está habilitado |
+| FIREBASE_HTTP_400 (ou outro status) | Motivo não reconhecido pela lista segura; status sozinho não permite concluir a causa |
+
+Esses motivos são registrados tanto na geração do link SMTP quanto nas chamadas Firebase REST de confirmação/envio nativo. `EMAIL_NOT_FOUND`/`USER_DISABLED` na recuperação não são expostos como erro de conta. Na confirmação continuam agrupados em `INVALID_OR_EXPIRED_CODE`. Respostas 5xx do Firebase nunca são convertidas em erro de dados do usuário.
+
+A falha de exemplo `FIREBASE_HTTP_400` não prova bloqueio nem falha SMTP: ocorreu antes do envio e descartava o motivo específico. A classificação nova só passa a valer após publicar esta versão; logs históricos não podem ser reclassificados. Consulte também [diagnóstico de observabilidade](docs/observability-diagnostics.md) para as etapas SMTP e correlação.
 
 ## Configuração
 

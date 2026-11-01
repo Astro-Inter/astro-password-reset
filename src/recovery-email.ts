@@ -1,3 +1,4 @@
+import { firebaseFailure, dependencyFailure } from './provider-errors.ts';
 import { observe } from "./diagnostics.ts";
 import { sendSmtp, type SmtpDeliver } from './smtp.ts';
 import { googleAccessToken } from './google-auth.ts';
@@ -26,7 +27,7 @@ export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport
   // Inclui OAuth, geração do link e aceitação SMTP da mensagem completa.
   const timeout = setTimeout(() => controller.abort(), 60000);
   try {
-    if (!env.FIREBASE_PROJECT_ID || !env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM_EMAIL) throw unavailable();
+    if (!env.FIREBASE_PROJECT_ID || !env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM_EMAIL) throw dependencyFailure('EMAIL_CONFIGURATION_ERROR', 'O envio de e-mail precisa de configuração. Contate o suporte.');
     const sender = recoveryEmail({ email: env.SMTP_FROM_EMAIL });
     const accessToken = await observe("oauth_token", "google_oauth", () => googleAccessToken(env, transport, controller.signal));
     const generated = await transport(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${encodeURIComponent(env.FIREBASE_API_KEY)}`, {
@@ -39,9 +40,7 @@ export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport
       const error = body && typeof body === 'object' && 'error' in body ? body.error : undefined;
       const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message.split(/[ :]/)[0] : '';
       if (generated.status === 400 && ['EMAIL_NOT_FOUND', 'USER_DISABLED'].includes(message ?? '')) return;
-      throw Object.assign(unavailable(), {
-        cause: Object.assign(new Error('Firebase link request rejected'), { code: `FIREBASE_HTTP_${generated.status}` }),
-      });
+      throw firebaseFailure(generated.status, body);
     }
     // Firebase com proteção contra enumeração responde 200 sem link para conta ausente.
     if (body && typeof body === 'object' && !('oobLink' in body) &&
@@ -53,12 +52,16 @@ export async function sendRecoveryEmail(email: string, env: WorkerEnv, transport
     if (generatedLink.protocol !== 'https:' || codes.length !== 1) throw unavailable();
     const link = buildResetUrl(env.FRONTEND_BASE_URL, codes[0]!);
     const content = passwordResetTemplate(link);
-    await observe("smtp_delivery", "smtp", () => deliver({ from: sender, to: email, subject: 'Redefinição de senha — Astro', text: content.text, html: content.html,
+    await observe("smtp_delivery", "smtp", async () => { try { await deliver({ from: sender, to: email, subject: 'Redefinição de senha — Astro', text: content.text, html: content.html,
       attachments: [
         { content: astroLogoBase64, filename: 'logo-astro.png', cid: 'logo-astro' },
         { content: recoveryPlanetBase64, filename: 'recovery-planet.png', cid: 'recovery-planet' },
       ],
-    }, env, controller.signal));
-  } catch (error) { throw Object.assign(unavailable(), { cause: error }); }
+    }, env, controller.signal); } catch (error) { throw dependencyFailure('EMAIL_DELIVERY_UNAVAILABLE', 'Não foi possível confirmar o envio do e-mail. Tente novamente mais tarde.', error); } });
+  } catch (error) {
+    if (controller.signal.aborted) throw dependencyFailure('PROVIDER_TIMEOUT', 'O serviço externo demorou para responder. Tente novamente mais tarde.', error);
+    if (error instanceof HttpError) throw error;
+    throw Object.assign(unavailable(), { cause: error });
+  }
   finally { clearTimeout(timeout); }
 }

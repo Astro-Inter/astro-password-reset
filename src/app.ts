@@ -18,6 +18,7 @@ export async function handleRequest(request: Request, env: WorkerEnv, transport:
     const origin = request.headers.get('Origin');
     if (origin && !origins.has(origin)) throw new HttpError(403, 'ORIGIN_NOT_ALLOWED', 'Origem não autorizada.');
     if (origin) headers.set('Access-Control-Allow-Origin', origin);
+    headers.set('Access-Control-Expose-Headers', 'X-Request-ID, Retry-After');
     if (!['/auth/forgot-password', '/auth/reset-password'].includes(url.pathname)) throw new HttpError(404, 'NOT_FOUND', 'Rota não encontrada.');
     if (request.method === 'OPTIONS') {
       if (request.headers.get('Access-Control-Request-Method') !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'Utilize POST.');
